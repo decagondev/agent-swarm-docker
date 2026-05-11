@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-swarm-docker"
+version = "0.1.0"
+description = "Docker Swarm runtime for a parallel LLM-supervised agent swarm (conference-talk demo)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-mock>=3.12",
+  "responses>=0.25",
+  "ruff>=0.5",
+  "rich>=13",
+  "python-dotenv>=1",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "agents*"]
+exclude = ["tests*", "shared-data*", "scripts*", "docker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+  "integration: requires real Docker Swarm; opt-in via DOCKER_SWARM_TESTS=1",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
