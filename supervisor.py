@@ -19,7 +19,12 @@ import agents  # noqa: F401 — triggers @register_agent imports
 from core.io.shared_volume import DEFAULT_ROOT, SharedVolume
 from core.llm import get_llm_client
 from core.registry import REGISTRY
-from core.supervisor import Supervisor, ThreadPoolAgentExecutor
+from core.supervisor import (
+    AgentExecutor,
+    Supervisor,
+    SwarmAgentExecutor,
+    ThreadPoolAgentExecutor,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -47,6 +52,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override LLM_PROVIDER (openai | groq | xai).",
     )
+    parser.add_argument(
+        "--executor",
+        choices=("threadpool", "swarm"),
+        default=os.environ.get("AGENT_SWARM_EXECUTOR", "threadpool"),
+        help=(
+            "How to run tool calls. 'threadpool' (default) runs agents in-process; "
+            "'swarm' spawns one ephemeral Docker Swarm service per call."
+        ),
+    )
     return parser
 
 
@@ -58,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     volume = SharedVolume(args.data_root)
     volume.ensure_dirs()
     llm = get_llm_client(args.provider)
-    executor = ThreadPoolAgentExecutor(REGISTRY, volume, llm=llm)
+    executor = _build_executor(args.executor, volume, llm)
     supervisor = Supervisor(
         llm=llm, registry=REGISTRY, executor=executor, volume=volume
     )
@@ -66,6 +80,20 @@ def main(argv: list[str] | None = None) -> int:
     final = supervisor.run(prompt, job_id=args.job)
     print(final)
     return 0
+
+
+def _build_executor(kind: str, volume: SharedVolume, llm) -> AgentExecutor:
+    if kind == "threadpool":
+        return ThreadPoolAgentExecutor(REGISTRY, volume, llm=llm)
+    if kind == "swarm":
+        from core.swarm import ResultWatcher, SwarmManager
+
+        image = os.environ.get("AGENT_SWARM_IMAGE", "agent-swarm:latest")
+        shared_volume = os.environ.get("AGENT_SWARM_VOLUME", "agent-swarm_shared-data")
+        swarm = SwarmManager(image=image, shared_volume=shared_volume)
+        watcher = ResultWatcher(volume.results_dir)
+        return SwarmAgentExecutor(REGISTRY, volume, swarm, watcher)
+    raise ValueError(f"Unknown executor: {kind!r}")
 
 
 if __name__ == "__main__":
