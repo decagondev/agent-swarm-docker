@@ -1,0 +1,21 @@
+{
+  "_comment": "Recorded LLM conversation for the talk demo. Two-turn loop: first turn emits 4 parallel tool calls covering the four LLM-free agents (capitalize/reverse/count_consonants/vowel_random); second turn synthesises the final report. The LLM-aware agents (feature_extractor/slogan_generator/translator) are intentionally omitted from this fixture because they would each call the same ScriptedLLMClient and exhaust it. Use with: python supervisor.py --dry-run --fixture tests/fixtures/talk_prompt_response.json --job demo \"<talk prompt>\"",
+  "responses": [
+    {
+      "text": null,
+      "tool_calls": [
+        {"id": "call_capitalize", "name": "capitalize",
+         "arguments": {"input_ref": "demo"}},
+        {"id": "call_reverse", "name": "reverse",
+         "arguments": {"input_ref": "demo"}},
+        {"id": "call_consonants", "name": "count_consonants",
+         "arguments": {"input_ref": "demo"}},
+        {"id": "call_vowel_random", "name": "vowel_random",
+         "arguments": {"input_ref": "demo"}}
+      ]
+    },
+    {
+      "text": "Final report:\n\nThe text was analyzed by 4 parallel agents. capitalize uppercased the original; reverse produced the backwards-compatibility joke; count_consonants returned a numeric tally; vowel_random emitted a random ASCII string sized to twice the vowel count.\n\n(This response was replayed from a recorded fixture for offline rehearsal — no LLM was contacted.)"
+    }
+  ]
+}
