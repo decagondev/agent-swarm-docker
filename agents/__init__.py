@@ -1,10 +1,10 @@
 """Agent package.
 
-Concrete agents land in later slices and self-register on import via
-`@register_agent` (commit 3). Until then this package only exposes the
-abstract `BaseAgent` and its data carriers.
+Concrete agent modules are imported here for their `@register_agent`
+side-effect — importing `agents` populates the module-level `REGISTRY`.
 """
 
+from agents import capitalize, reverse  # noqa: F401 — import-for-side-effect
 from agents.base import AgentResult, BaseAgent, ToolSchema
 
 __all__ = ["AgentResult", "BaseAgent", "ToolSchema"]
