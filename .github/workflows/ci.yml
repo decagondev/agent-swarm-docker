@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: lint + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip install -r requirements.txt
+
+      - name: Ruff
+        run: python -m ruff check .
+
+      - name: Unit tests
+        run: python -m pytest tests/unit -v
+
+  integration:
+    name: integration (real Swarm, dry-run LLM)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip install -r requirements.txt
+
+      - name: Initialise Docker Swarm
+        run: docker swarm init --advertise-addr 127.0.0.1
+
+      - name: Build agent-swarm image
+        run: docker build -f docker/Dockerfile -t agent-swarm:latest .
+
+      - name: Integration tests
+        env:
+          DOCKER_SWARM_TESTS: "1"
+          AGENT_SWARM_CI_FIXTURE: tests/fixtures/ci_response.json
+        run: python -m pytest tests/integration -v

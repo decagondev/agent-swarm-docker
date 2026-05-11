@@ -1,0 +1,17 @@
+{
+  "_comment": "CI integration fixture. Smaller than talk_prompt_response.json — only two parallel LLM-free agents — so CI's real-Swarm path completes quickly. The job_id is 'e2e' (matches tests/integration/test_swarm_e2e.py).",
+  "responses": [
+    {
+      "text": null,
+      "tool_calls": [
+        {"id": "call_capitalize", "name": "capitalize",
+         "arguments": {"input_ref": "e2e"}},
+        {"id": "call_reverse", "name": "reverse",
+         "arguments": {"input_ref": "e2e"}}
+      ]
+    },
+    {
+      "text": "CI smoke OK. capitalize and reverse ran via Docker Swarm services. CAPITALIZED output present in shared-data/results/."
+    }
+  ]
+}
