@@ -48,6 +48,77 @@ def fake_llm() -> FakeLLMClient:
     return FakeLLMClient()
 
 
+# ---------------------------------------------------------------------------
+# Docker SDK fake — used by SwarmManager tests.
+# ---------------------------------------------------------------------------
+
+
+class FakeService:
+    def __init__(
+        self,
+        id_: str,
+        name: str,
+        labels: dict[str, str],
+        tasks: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.id = id_
+        self.name = name
+        self.labels = labels
+        self._tasks = tasks if tasks is not None else [{"Status": {"State": "complete"}}]
+        self.removed = False
+
+    def tasks(self) -> list[dict[str, Any]]:
+        return list(self._tasks)
+
+    def set_tasks(self, tasks: list[dict[str, Any]]) -> None:
+        self._tasks = tasks
+
+    def remove(self) -> None:
+        self.removed = True
+
+
+class FakeServices:
+    def __init__(self) -> None:
+        self.create_calls: list[dict[str, Any]] = []
+        self._services: dict[str, FakeService] = {}
+        self._counter = 0
+
+    def create(self, **kwargs: Any) -> FakeService:
+        self._counter += 1
+        sid = f"svc-{self._counter:04d}"
+        svc = FakeService(
+            id_=sid,
+            name=kwargs.get("name", sid),
+            labels=dict(kwargs.get("labels", {})),
+        )
+        self._services[sid] = svc
+        self.create_calls.append(kwargs)
+        return svc
+
+    def get(self, service_id: str) -> FakeService:
+        if service_id not in self._services:
+            raise KeyError(service_id)
+        return self._services[service_id]
+
+    def list(self, filters: dict[str, str] | None = None) -> list[FakeService]:
+        out = list(s for s in self._services.values() if not s.removed)
+        if filters and "label" in filters:
+            want = filters["label"]
+            key, _, value = want.partition("=")
+            out = [s for s in out if s.labels.get(key) == value]
+        return out
+
+
+class FakeDockerClient:
+    def __init__(self) -> None:
+        self.services = FakeServices()
+
+
+@pytest.fixture
+def fake_docker() -> FakeDockerClient:
+    return FakeDockerClient()
+
+
 @pytest.fixture
 def shared_data_dir(tmp_path):
     """Throwaway shared-volume root mirroring /app/data layout in containers."""
