@@ -1,18 +1,20 @@
-# Local-dev compose for the new architecture.
+# Local-dev compose for the LLM Supervisor (Epic 2).
 # Run from repo root:
 #   docker compose -f docker/compose.dev.yml build
-#   docker compose -f docker/compose.dev.yml run --rm orchestrator python orchestrator.py "..."
+#   docker compose -f docker/compose.dev.yml run --rm supervisor python supervisor.py "..."
 #
-# The orchestrator fans out to all registered agents via subprocess; no
-# per-task worker services are needed. Epic 3 replaces this single-service
-# layout with dynamic Swarm services spawned at runtime.
+# Requires a populated .env (LLM_PROVIDER + matching API key). The Supervisor
+# fans out to registered agents via an in-process thread pool. Epic 3 replaces
+# this with dynamic Swarm services spawned at runtime.
 
 services:
-  orchestrator:
+  supervisor:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     image: agent-swarm:dev
-    command: python orchestrator.py
+    command: python supervisor.py
+    env_file:
+      - ../.env
     volumes:
       - ../shared-data:/app/data
