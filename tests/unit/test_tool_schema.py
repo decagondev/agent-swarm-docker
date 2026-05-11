@@ -36,7 +36,7 @@ def test_registry_openai_tools_returns_list_per_agent():
     tools = REGISTRY.openai_tools()
     names = [t["function"]["name"] for t in tools]
     assert names == sorted(names)  # Stable order.
-    assert set(names) == {"capitalize", "count_consonants", "reverse", "vowel_random"}
+    assert {"capitalize", "count_consonants", "reverse", "vowel_random"} <= set(names)
 
 
 def test_registry_openai_tools_are_function_typed():

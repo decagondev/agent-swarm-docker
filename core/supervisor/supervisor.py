@@ -7,11 +7,12 @@ backed by Docker Swarm services; the Supervisor itself never imports `docker`.
 
 from __future__ import annotations
 
+import inspect
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
 from uuid import uuid4
 
-from agents.base import AgentResult
+from agents.base import AgentResult, BaseAgent
 from core.io.shared_volume import SharedVolume
 from core.llm.base import LLMClient
 from core.registry import AgentRegistry
@@ -23,6 +24,17 @@ from core.supervisor.prompt import SUPERVISOR_SYSTEM_PROMPT, build_user_message
 
 MAX_ITERATIONS = 5
 DEFAULT_MAX_WORKERS = 8
+
+
+def _instantiate(cls: type[BaseAgent], llm: LLMClient | None) -> BaseAgent:
+    """Construct an agent, passing `llm` only if its __init__ accepts it.
+
+    Lets LLM-aware agents receive a shared client without forcing simple
+    agents (e.g. CapitalizeAgent) to declare an `llm` parameter they ignore.
+    """
+    if llm is None or "llm" not in inspect.signature(cls.__init__).parameters:
+        return cls()
+    return cls(llm=llm)
 
 
 class AgentExecutor(Protocol):
@@ -43,10 +55,12 @@ class ThreadPoolAgentExecutor:
         registry: AgentRegistry,
         volume: SharedVolume,
         max_workers: int = DEFAULT_MAX_WORKERS,
+        llm: LLMClient | None = None,
     ) -> None:
         self._registry = registry
         self._volume = volume
         self._max_workers = max_workers
+        self._llm = llm
 
     def execute(self, calls: list[tuple[str, str]]) -> list[AgentResult]:
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
@@ -55,7 +69,7 @@ class ThreadPoolAgentExecutor:
 
     def _run_one(self, agent_name: str, job_id: str) -> AgentResult:
         cls = self._registry.get(agent_name)
-        return cls().run(
+        return _instantiate(cls, self._llm).run(
             self._volume.input_path(job_id),
             self._volume.results_dir,
             job_id,

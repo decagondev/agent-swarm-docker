@@ -141,10 +141,31 @@ def test_auto_generates_job_id_when_omitted(volume, executor, fake_llm):
     assert written[0].read_text() == "x"
 
 
-def test_threadpool_executor_runs_all_four_agents(volume):
+def test_threadpool_executor_runs_simple_agents(volume):
+    """Smoke: the executor parallelizes the four LLM-free agents end-to-end."""
     volume.write_input("j", "Hello World")
     executor = ThreadPoolAgentExecutor(REGISTRY, volume)
-    results = executor.execute([(name, "j") for name in REGISTRY.names()])
-    assert {r.agent_name for r in results} == set(REGISTRY.names())
+    simple_agents = ["capitalize", "reverse", "count_consonants", "vowel_random"]
+    results = executor.execute([(name, "j") for name in simple_agents])
+    assert {r.agent_name for r in results} == set(simple_agents)
     for r in results:
         assert r.output_path.exists()
+
+
+def test_threadpool_executor_injects_llm_into_llm_aware_agents(volume, fake_llm):
+    """LLM-aware agents (feature_extractor, slogan_generator, translator) get
+    the executor's `llm` injected via inspect-driven kwargs."""
+    fake_llm.queue_response(LLMResponse(text="features list"))
+    fake_llm.queue_response(LLMResponse(text="slogan A\nslogan B\nslogan C"))
+    fake_llm.queue_response(LLMResponse(text="Salut le monde."))
+
+    volume.write_input("j", "hello world")
+    executor = ThreadPoolAgentExecutor(REGISTRY, volume, max_workers=1, llm=fake_llm)
+    results = executor.execute(
+        [("feature_extractor", "j"), ("slogan_generator", "j"), ("translator", "j")]
+    )
+    assert {r.agent_name for r in results} == {
+        "feature_extractor", "slogan_generator", "translator"
+    }
+    for r in results:
+        assert r.output_path.read_text() != ""
