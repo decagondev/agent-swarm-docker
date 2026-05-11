@@ -72,6 +72,7 @@ class SwarmManager:
         data_root_in_container: str = "/app/data",
         label_prefix: str = DEFAULT_LABEL_PREFIX,
         poll_interval_s: float = 0.5,
+        reap_stale_on_startup: bool = True,
     ) -> None:
         self._client = client if client is not None else _resolve_default_client()
         self._image = image
@@ -79,6 +80,8 @@ class SwarmManager:
         self._data_root = data_root_in_container
         self._label_prefix = label_prefix
         self._poll_interval = poll_interval_s
+        if reap_stale_on_startup:
+            self.reap_stale()
 
     # ----- spawn -----------------------------------------------------------
 
@@ -165,6 +168,18 @@ class SwarmManager:
             live.remove()
         except Exception:  # noqa: BLE001
             pass
+
+    def reap_stale(self) -> int:
+        """Remove any leftover ephemeral services from a prior run.
+
+        Called automatically at construction unless `reap_stale_on_startup=False`.
+        Useful after a crashed supervisor: ensures `docker service ls` is clean
+        before the next run spawns fresh agents. Returns the count removed.
+        """
+        stale = self.list_active({f"{self._label_prefix}.role": "ephemeral"})
+        for s in stale:
+            self.cleanup(s)
+        return len(stale)
 
     def list_active(
         self, label_filter: dict[str, str] | None = None
