@@ -43,6 +43,10 @@ class AgentRegistry:
     def all_schemas(self) -> list[ToolSchema]:
         return [self._agents[name].tool_schema() for name in self.names()]
 
+    def openai_tools(self) -> list[dict]:
+        """All registered agents serialized for the LLM tools= parameter."""
+        return [s.to_openai_dict() for s in self.all_schemas()]
+
     def __contains__(self, name: str) -> bool:
         return name in self._agents
 

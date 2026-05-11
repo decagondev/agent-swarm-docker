@@ -22,6 +22,17 @@ class ToolSchema:
     description: str
     parameters: dict[str, Any]
 
+    def to_openai_dict(self) -> dict[str, Any]:
+        """Serialize to the OpenAI / Groq / xAI function-calling format."""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
+
 
 @dataclass(frozen=True)
 class AgentResult:
