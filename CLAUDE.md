@@ -4,39 +4,66 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Purpose
 
-This repo is a **live-demo asset** for an 8-minute conference talk on Docker Swarm as a runtime for parallel AI agent swarms (see `lesson-plan-prd.md` for the full PRD). The current code is the **pre-refactor baseline** — a minimal "orchestrator + workers" pattern over `docker compose`. The PRD describes a planned evolution toward a SOLID-modularized layout (`core/`, `agents/`, `docker/`) with an LLM supervisor and dynamic Docker Swarm service spawning. When making changes, check `lesson-plan-prd.md` first to see whether the work fits an already-planned epic/commit slice.
+This repo is a **live-demo asset** for an 8-minute conference talk on Docker Swarm as a runtime for parallel AI agent swarms (see `lesson-plan-prd.md` for the original PRD and `/home/tom/.claude/plans/ok-well-lets-make-vivid-goblet.md` for the executable plan that drove the refactor). The end state is a SOLID-modular Python package with a provider-agnostic LLM supervisor that uses registered agents as tools and dynamically spawns Docker Swarm services. The README walks a stranger through the talk's clone-and-run path.
 
 ## Commands
 
 ```bash
-# Build all service images
-docker compose up --build -d
+# Demo path (Swarm executor).
+./scripts/demo-up.sh                       # swarm init + build (cached) + stack deploy
+./scripts/demo-run.sh "Your task"          # docker exec into supervisor service
+./scripts/demo-logs.sh                     # watch agent services spawn/exit
+./scripts/demo-down.sh                     # stack rm + volume rm
 
-# Run the orchestrator with custom text (all argv after script name is joined)
-docker compose run --rm orchestrator python orchestrator.py "Your paragraph here."
+# Dev path (in-process threadpool — faster iteration).
+docker compose -f docker/compose.dev.yml build
+docker compose -f docker/compose.dev.yml run --rm supervisor \
+    python supervisor.py --executor threadpool "..."
 
-# Scale specific workers for parallelism (e.g. when batch mode is enabled in orchestrator.py)
-docker compose up -d --scale capitalize-worker=5 --scale reverse-worker=5
+# Local Python.
+pip install -e ".[dev]"                    # editable + dev tooling
+pytest tests/unit                          # unit tests, no Docker
+DOCKER_SWARM_TESTS=1 pytest tests/integration   # opt-in e2e against real Swarm
+ruff check .
+
+# Offline rehearsal (no LLM network).
+python supervisor.py --dry-run --fixture tests/fixtures/talk_prompt_response.json \
+    --job demo --data-root /tmp/demo "..."
 ```
-
-There is no test suite, linter, or build script yet. The PRD calls for `pytest` and `make test-demo` as future work (Epic 5).
 
 ## Architecture
 
-**File-based handoff over a shared Docker volume** — there is no message queue, no API, no LLM in the baseline. All four worker services and the orchestrator mount `./shared-data` at `/app/data`, and coordinate by reading/writing files in three subdirectories:
+**Composition root** is `supervisor.py` (root entrypoint). It wires `get_llm_client()` → `Supervisor(llm, registry, executor, volume, logger)` and runs a turn-based LLM loop until the model returns a final answer (no more tool calls).
 
-- `/app/data/input/` — orchestrator writes `*.txt` here
-- `/app/data/results/` — workers each write `<task>_<filename>.result` here
-- `/app/data/output/` — orchestrator writes `final_report.txt` and appends to `orchestrator_log.txt`
+**SOLID boundaries:**
+- `agents/base.py` — `BaseAgent` ABC, `ToolSchema`/`AgentResult` frozen dataclasses. `tool_schema()` is `@classmethod` so the registry can collect schemas without instantiating LLM-aware agents.
+- `core/registry.py` — `AgentRegistry` + `@register_agent` decorator. Open/Closed: zero name-based branching. Adding an agent = one file + decorator + side-effect import from `agents/__init__.py`.
+- `core/llm/` — `LLMClient` ABC (Dependency Inversion). `_OpenAICompatibleClient` shared base; `OpenAIClient`/`GroqClient`/`XAIClient` are 10-LOC subclasses differing only in `BASE_URL` + `API_KEY_ENV`. Factory `get_llm_client(provider)` lazy-imports the concrete class so `core.llm` stays cheap to import. `ScriptedLLMClient` replays JSON fixtures for offline rehearsal.
+- `core/swarm/` — `SwarmManager` is Protocol-typed against `_DockerClientProtocol` so tests use `FakeDockerClient` (in `tests/conftest.py`) and production uses `docker.from_env()`. `ServiceSpec` is a pure dataclass with `to_create_kwargs()`. `ResultWatcher` polls the shared volume for `<job>__<agent>.result` files.
+- `core/supervisor/` — `Supervisor` + two executors (`ThreadPoolAgentExecutor`, `SwarmAgentExecutor`) implementing the same `AgentExecutor` Protocol. Epic-3's Swarm swap was a single file change because of this. Aggregator helpers build the OpenAI tool-call message turn shape.
 
-**Worker contract:** Each worker is a single `worker.py --task <name>` process that scans `/app/data/input/*.txt` **once at startup**, processes every file, writes results, and exits. Workers do not poll — they run to completion. The four task names are hardcoded in `worker.py`'s argparse `choices`: `capitalize`, `reverse`, `count_consonants`, `vowel_random`. Adding a new task requires editing both the `choices` list and the `if/elif` branches.
+**Wire format**: File-based handoff via a shared volume (`/app/data`). The Supervisor writes input to `input/<job>.txt`; each agent writes its result to `results/<job>__<agent>.result`. `SwarmAgentExecutor`'s `AgentResult.summary` is the file content (clipped to 800 chars) since Swarm-spawned agents can't return Python objects.
 
-**Orchestrator contract:** `orchestrator.py` writes the input file, then polls `/app/data/results/` until `len(results) >= num_tasks * num_input_files` or a 60-second timeout, then aggregates. This means **workers must already be running** (`docker compose up -d`) before `docker compose run --rm orchestrator` is invoked — the orchestrator does not start them.
+**LLM injection into agents**: `ThreadPoolAgentExecutor` uses `inspect.signature` to detect whether an agent's `__init__` accepts `llm=` — simple agents (capitalize/reverse/etc.) ignore it; LLM-aware agents (feature_extractor/slogan_generator/translator) receive a shared client. Swarm-spawned agents construct their own client lazily via `get_llm_client()` from env.
 
-**Image strategy:** A single `Dockerfile` (`python:3.12-slim`, no deps) is used for all five services. The `command:` field in `docker-compose.yml` is what distinguishes a worker's task from the orchestrator. The Dockerfile's default `CMD` is `worker.py` with no `--task`, which will fail — this is intentional; every service overrides it.
+**Logging**: `core/logging.py` `SwarmEventLogger` is rich-based. Final-answer text goes to stdout; spawn/cleanup/iter events go to stderr — pipeline-safe (`supervisor.py ... | tee result.txt` works).
 
 ## Working in this repo
 
-- The orchestrator has a commented-out "batch mode" loop (orchestrator.py:29-31) that generates 20 files. The README references uncommenting it for scaling demos.
-- `vowel_random` and `reverse` tasks write **two** files per input: a `.result` summary and a raw output file (`random_<filename>` / `reversed_<filename>`). The orchestrator's polling math only counts `.result` files, so this is fine — but be aware when adding tasks.
-- The PRD's planned folder structure (`core/`, `agents/`, `docker/`) does not exist yet. Do not assume it; if asked to add an agent type today, you extend `worker.py`. If asked to start Epic 1 of the refactor, follow the commit slices in `lesson-plan-prd.md` §5.
+- **Agent ↔ LLM coupling**: The `parameters` JSON schema on each `BaseAgent` is what the LLM sees. The agent's `run()` does NOT receive those parameters — it just operates on the job's input file. Every agent's schema currently requires `input_ref` for consistency, but the value is informational only.
+- **Registry side-effect imports**: Concrete agents are activated by being imported in `agents/__init__.py`. Forgetting that line means the agent exists but the LLM never sees it.
+- **Two executors, one Protocol**: When changing supervisor behavior, make sure both `ThreadPoolAgentExecutor` and `SwarmAgentExecutor` keep behaving identically from the Supervisor's perspective — they're the substitutability test.
+- **Stale-service reaper**: `SwarmManager` reaps `agent-swarm.role=ephemeral` services on construction by default. If you add a new long-lived role, label it differently (the supervisor itself uses `role=supervisor`).
+- **Talk fixture limit**: `tests/fixtures/talk_prompt_response.json` deliberately omits LLM-aware agents (feature_extractor, slogan_generator, translator) because they'd recursively consume responses from the same `ScriptedLLMClient`. If you extend the fixture with those agents, add per-agent responses for each LLM call.
+- **`shared-data/` is host-side, root-owned**: Docker writes there as root. Cleanup uses an `alpine` container: `docker run --rm -v "$(pwd)/shared-data:/data" alpine sh -c "rm -rf /data/*"`.
+- **Docker socket security**: `docker/docker-stack.yml` mounts `/var/run/docker.sock` so the supervisor can spawn sibling services. This is a demo-only pattern; README calls it out.
+
+## Demo-readiness gates
+
+| After commit | What works |
+|---|---|
+| Slice 8  | Original 4-task demo via the new architecture (no LLM, no Swarm) |
+| Slice 14 | LLM supervisor + threadpool — fallback if Swarm work slips |
+| Slice 18 | Full talk demo with real Swarm |
+| Slice 22 | + offline rehearsal via `--dry-run --fixture` |
+| Slice 25 | Ship-ready: docs + CI |
