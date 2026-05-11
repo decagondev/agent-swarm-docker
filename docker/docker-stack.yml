@@ -13,10 +13,12 @@ version: "3.9"
 services:
   supervisor:
     image: agent-swarm:latest
-    # No CMD here — start in a long-lived "ready for invocations" state. For
-    # the demo we use `docker exec` (or `docker compose run`) to invoke the
-    # supervisor CLI. The default CMD (runner --help) is benign as a healthy
-    # PID 1; a future slice can swap to a stdin-driven daemon if needed.
+    # Long-lived idle container — demo-run.sh `docker exec`s into it for each
+    # invocation. The Dockerfile's default CMD exits immediately, which would
+    # thrash under restart_policy: any.
+    command: ["sleep", "infinity"]
+    labels:
+      agent-swarm.role: "supervisor"
     deploy:
       replicas: 1
       restart_policy:
