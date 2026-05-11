@@ -1,4 +1,4 @@
-"""Tests for `ReverseAgent` — parity with the original `worker.py` transform."""
+"""Tests for `ReverseAgent` — pins the baseline reverse transform."""
 
 import pytest
 
@@ -17,7 +17,7 @@ from core.registry import REGISTRY
     ],
 )
 def test_byte_for_byte_parity_with_worker(text, shared_data_dir):
-    # Equivalent to worker.py:40-42 — `result = content[::-1]`.
+    # Baseline transform: `content[::-1]`.
     expected = text[::-1]
 
     input_path = shared_data_dir / "input" / "p.txt"

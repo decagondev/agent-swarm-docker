@@ -1,4 +1,4 @@
-"""Tests for `CountConsonantsAgent` — parity with `worker.py`'s helper."""
+"""Tests for `CountConsonantsAgent` — pins the baseline helper."""
 
 import pytest
 
@@ -12,14 +12,13 @@ from core.registry import REGISTRY
     [
         ("", 0),
         ("aeiou", 0),  # All vowels.
-        ("AEIOU", 0),  # Vowels are case-insensitive in worker.py:15.
+        ("AEIOU", 0),  # Vowel set is case-insensitive: "aeiouAEIOU".
         ("bcdfg", 5),
         ("BCDFG", 5),
         ("Hello, World!", 7),  # H,l,l,W,r,l,d
         ("123 !@#", 0),  # Non-alpha skipped.
-        # worker.py uses literal set("aeiouAEIOU"), so accented vowels like
-        # é/ï are alpha-but-not-in-set → counted as consonants. Documenting
-        # this pinned baseline behaviour.
+        # Baseline uses literal set("aeiouAEIOU"); accented vowels like é/ï
+        # are alpha-but-not-in-set → counted as consonants. Pinning that.
         ("café naïve", 6),  # c,f,é + n,ï,v
     ],
 )

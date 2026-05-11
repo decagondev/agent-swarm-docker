@@ -17,7 +17,7 @@ from core.registry import REGISTRY
         ("aeiou", 5),
         ("AEIOU", 5),
         ("Hello, World!", 3),  # e, o, o
-        # worker.py uses literal set("aeiouAEIOU"); é is not in that set,
+        # Baseline uses literal set("aeiouAEIOU"); é is not in that set,
         # so it does not count as a vowel. Pinning baseline.
         ("café", 1),
     ],

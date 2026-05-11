@@ -1,4 +1,4 @@
-"""Tests for `CapitalizeAgent` — parity with the original `worker.py` transform."""
+"""Tests for `CapitalizeAgent` — pins the baseline uppercase transform."""
 
 import pytest
 
@@ -17,7 +17,7 @@ from core.registry import REGISTRY
     ],
 )
 def test_byte_for_byte_parity_with_worker(text, shared_data_dir):
-    # Equivalent to worker.py:36-38 — `result = content.upper()`.
+    # Baseline transform: `content.upper()`.
     expected = text.upper()
 
     input_path = shared_data_dir / "input" / "p.txt"
