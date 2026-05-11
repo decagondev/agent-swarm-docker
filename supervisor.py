@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     volume = SharedVolume(args.data_root)
     volume.ensure_dirs()
     llm = get_llm_client(args.provider)
-    executor = ThreadPoolAgentExecutor(REGISTRY, volume)
+    executor = ThreadPoolAgentExecutor(REGISTRY, volume, llm=llm)
     supervisor = Supervisor(
         llm=llm, registry=REGISTRY, executor=executor, volume=volume
     )
