@@ -1,71 +1,74 @@
-import os
-import time
-import glob
-from datetime import datetime
+"""Legacy orchestrator — dependency-inverted onto the new agent registry.
+
+Bridges the original demo CLI (`python orchestrator.py "paragraph"`) to the
+new architecture: drops the hardcoded task list, drives a one-subprocess-
+per-agent fan-out via `python -m agents.runner`, and aggregates result files
+written by each agent into a single `final_report.txt`.
+
+This module is the closing piece of Epic 1; Epic 2 replaces it with an
+LLM-driven `supervisor.py`.
+"""
+
+import subprocess
 import sys
+from datetime import datetime
 
-DATA_INPUT = "/app/data/input"
-DATA_RESULTS = "/app/data/results"
-DATA_OUTPUT = "/app/data/output"
+import agents  # noqa: F401 — triggers @register_agent imports
+from core.io.shared_volume import SharedVolume
+from core.registry import REGISTRY
 
-os.makedirs(DATA_INPUT, exist_ok=True)
-os.makedirs(DATA_RESULTS, exist_ok=True)
-os.makedirs(DATA_OUTPUT, exist_ok=True)
+DEFAULT_PARAGRAPH = (
+    "The quick brown fox jumps over the lazy dog. "
+    "This is a test paragraph for the agent swarm."
+)
+JOB_ID = "initial_paragraph"
 
-def main():
+
+def main() -> int:
+    paragraph = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else DEFAULT_PARAGRAPH
     if len(sys.argv) < 2:
-        paragraph = "The quick brown fox jumps over the lazy dog. This is a test paragraph for the agent swarm."
         print("⚠️  No paragraph provided — using demo text.")
-    else:
-        paragraph = " ".join(sys.argv[1:])
 
-    # Step 1: Supervisor creates the initial file(s)
-    input_file = f"{DATA_INPUT}/initial_paragraph.txt"
-    with open(input_file, "w", encoding="utf-8") as f:
-        f.write(paragraph)
-    print(f"📝 Orchestrator created initial file: {input_file}")
+    volume = SharedVolume()
+    volume.ensure_dirs()
+    input_path = volume.write_input(JOB_ID, paragraph)
+    print(f"📝 Orchestrator created initial file: {input_path}")
 
-    # Optional batch mode: generate 20 files (uncomment or run separately)
-    # for i in range(20):
-    #     with open(f"{DATA_INPUT}/file_{i+1:02d}.txt", "w") as f:
-    #         f.write(f"Batch file {i+1}: " + paragraph)
+    agent_names = REGISTRY.names()
+    print(f"⏳ Fanning out to {len(agent_names)} agents: {', '.join(agent_names)}")
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-m", "agents.runner", "--agent", name, "--job", JOB_ID],
+        )
+        for name in agent_names
+    ]
+    exit_codes = [p.wait() for p in procs]
 
-    print("⏳ Waiting for sub-agents to hand off results... (they process every .txt in input/)")
-
-    # Step 2: Poll until we have all 4 expected result types per input file
-    expected_tasks = ["capitalize", "reverse", "count_consonants", "vowel_random"]
-    start = time.time()
-    while True:
-        result_files = glob.glob(f"{DATA_RESULTS}/*.result")
-        if len(result_files) >= len(expected_tasks) * len(glob.glob(f"{DATA_INPUT}/*.txt")):
-            break
-        if time.time() - start > 60:  # safety timeout
-            print("⚠️ Timeout waiting for workers.")
-            break
-        time.sleep(2)
-
-    # Step 3: Orchestrator collects everything and writes final report + log
     timestamp = datetime.now().isoformat()
-    log_file = f"{DATA_OUTPUT}/orchestrator_log.txt"
-    report_file = f"{DATA_OUTPUT}/final_report.txt"
+    report_path = volume.output_dir / "final_report.txt"
+    log_path = volume.output_dir / "orchestrator_log.txt"
 
-    with open(report_file, "w", encoding="utf-8") as report:
+    with report_path.open("w", encoding="utf-8") as report:
         report.write(f"FINAL REPORT — Generated at {timestamp}\n")
-        report.write(f"Input files processed: {len(glob.glob(f'{DATA_INPUT}/*.txt'))}\n\n")
+        report.write(f"Agents run: {len(agent_names)}\n\n")
+        for name, code in zip(agent_names, exit_codes, strict=True):
+            result_path = volume.result_path(JOB_ID, name)
+            report.write(f"--- {name} (exit={code}) ---\n")
+            if result_path.exists():
+                report.write(result_path.read_text(encoding="utf-8"))
+            else:
+                report.write("(no result file)")
+            report.write("\n\n")
 
-        with open(log_file, "a", encoding="utf-8") as log:
-            log.write(f"[{timestamp}] Orchestrator started collection\n")
+    with log_path.open("a", encoding="utf-8") as log:
+        log.write(f"[{timestamp}] orchestrator finished; exit_codes={exit_codes}\n")
 
-            for res_file in sorted(glob.glob(f"{DATA_RESULTS}/*.result")):
-                with open(res_file, "r", encoding="utf-8") as f:
-                    content = f.read()
-                report.write(f"--- {os.path.basename(res_file)} ---\n{content}\n\n")
-                log.write(f"[{datetime.now().isoformat()}] Collected result from {os.path.basename(res_file)}\n")
+    print("✅ Orchestrator finished!")
+    print(f"📁 Final report  → {report_path}")
+    print(f"📋 Master log    → {log_path}")
+    print(f"📂 Raw results   → {volume.results_dir}")
+    return 0 if all(c == 0 for c in exit_codes) else 1
 
-    print(f"✅ Orchestrator finished!")
-    print(f"📁 Final report  → shared-data/output/final_report.txt")
-    print(f"📋 Master log    → shared-data/output/orchestrator_log.txt")
-    print(f"📂 All raw results → shared-data/results/")
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
