@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 import agents  # noqa: F401 — triggers @register_agent imports
 from core.io.shared_volume import DEFAULT_ROOT, SharedVolume
 from core.llm import get_llm_client
+from core.llm.base import LLMClient
+from core.llm.scripted import ScriptedLLMClient
 from core.logging import SwarmEventLogger
 from core.registry import REGISTRY
 from core.supervisor import (
@@ -67,6 +69,19 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Suppress spawn/cleanup/iter events on stderr.",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Replay a recorded LLM conversation instead of calling a provider. "
+            "Requires --fixture. Offline-rehearsal / bad-WiFi fallback."
+        ),
+    )
+    parser.add_argument(
+        "--fixture",
+        default=None,
+        help="Path to a JSON file of recorded LLMResponses. Used with --dry-run.",
+    )
     return parser
 
 
@@ -76,9 +91,9 @@ def main(argv: list[str] | None = None) -> int:
     prompt = " ".join(args.prompt)
 
     logger = SwarmEventLogger.silent() if args.quiet else SwarmEventLogger.default()
+    llm = _build_llm(args)  # Validate flags first; cheap failure if misused.
     volume = SharedVolume(args.data_root)
     volume.ensure_dirs()
-    llm = get_llm_client(args.provider)
     executor = _build_executor(args.executor, volume, llm, logger)
     supervisor = Supervisor(
         llm=llm,
@@ -91,6 +106,14 @@ def main(argv: list[str] | None = None) -> int:
     final = supervisor.run(prompt, job_id=args.job)
     print(final)
     return 0
+
+
+def _build_llm(args: argparse.Namespace) -> LLMClient:
+    if args.dry_run:
+        if not args.fixture:
+            raise SystemExit("--dry-run requires --fixture <path>")
+        return ScriptedLLMClient.from_fixture(args.fixture)
+    return get_llm_client(args.provider)
 
 
 def _build_executor(
