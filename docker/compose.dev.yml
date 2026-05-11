@@ -1,9 +1,11 @@
 # Local-dev compose for the new architecture.
-# Run from repo root: `docker compose -f docker/compose.dev.yml up`
+# Run from repo root:
+#   docker compose -f docker/compose.dev.yml build
+#   docker compose -f docker/compose.dev.yml run --rm orchestrator python orchestrator.py "..."
 #
-# Builds the image once (named agent-swarm:dev) and reuses it across services.
-# Each worker invokes `python -m agents.runner` against the same shared volume.
-# End-to-end orchestration is wired up in slice 8 (dependency-inverted orchestrator).
+# The orchestrator fans out to all registered agents via subprocess; no
+# per-task worker services are needed. Epic 3 replaces this single-service
+# layout with dynamic Swarm services spawned at runtime.
 
 services:
   orchestrator:
@@ -12,33 +14,5 @@ services:
       dockerfile: docker/Dockerfile
     image: agent-swarm:dev
     command: python orchestrator.py
-    volumes:
-      - ../shared-data:/app/data
-
-  capitalize-worker:
-    image: agent-swarm:dev
-    depends_on: [orchestrator]
-    command: python -m agents.runner --agent capitalize --job initial_paragraph
-    volumes:
-      - ../shared-data:/app/data
-
-  reverse-worker:
-    image: agent-swarm:dev
-    depends_on: [orchestrator]
-    command: python -m agents.runner --agent reverse --job initial_paragraph
-    volumes:
-      - ../shared-data:/app/data
-
-  consonant-worker:
-    image: agent-swarm:dev
-    depends_on: [orchestrator]
-    command: python -m agents.runner --agent count_consonants --job initial_paragraph
-    volumes:
-      - ../shared-data:/app/data
-
-  vowel-worker:
-    image: agent-swarm:dev
-    depends_on: [orchestrator]
-    command: python -m agents.runner --agent vowel_random --job initial_paragraph
     volumes:
       - ../shared-data:/app/data

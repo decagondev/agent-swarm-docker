@@ -1,7 +1,6 @@
 """Container entrypoint: `python -m agents.runner --agent <name> --job <id>`.
 
-Replaces the legacy `worker.py` argparse dispatcher. Each Swarm-spawned agent
-service runs this module once and exits.
+Each Swarm-spawned agent service runs this module once and exits.
 """
 
 import argparse
