@@ -151,11 +151,15 @@ activemq-data/
 .env
 .envrc
 .venv
+.venv*/
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Agent-swarm runtime volume (host-side mount; root-owned, not source).
+shared-data/
 
 # Spyder project settings
 .spyderproject
