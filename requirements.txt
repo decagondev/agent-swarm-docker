@@ -1,0 +1,4 @@
+# Runtime dependencies for the Docker image build cache.
+# Kept separate from pyproject.toml so `pip install -r requirements.txt`
+# in the Dockerfile only installs what the production image needs.
+# Populated incrementally: openai (commit 10), docker (commit 16).
