@@ -1,0 +1,52 @@
+# Production Swarm stack — supervisor only.
+#
+# The agents themselves are NOT declared as services here. The supervisor's
+# SwarmManager spawns one ephemeral service per tool call at runtime (via the
+# mounted /var/run/docker.sock) and tears it down once the result file lands.
+#
+# Deploy from repo root (after `docker swarm init`):
+#   docker build -f docker/Dockerfile -t agent-swarm:latest .
+#   docker stack deploy -c docker/docker-stack.yml agent-swarm
+
+version: "3.9"
+
+services:
+  supervisor:
+    image: agent-swarm:latest
+    # No CMD here — start in a long-lived "ready for invocations" state. For
+    # the demo we use `docker exec` (or `docker compose run`) to invoke the
+    # supervisor CLI. The default CMD (runner --help) is benign as a healthy
+    # PID 1; a future slice can swap to a stdin-driven daemon if needed.
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      # Keep the supervisor on the manager node so it can talk to the Swarm API
+      # via the docker socket without exposing it to worker nodes.
+      placement:
+        constraints:
+          - node.role == manager
+    environment:
+      LLM_PROVIDER: "${LLM_PROVIDER:-openai}"
+      LLM_MODEL: "${LLM_MODEL:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      XAI_API_KEY: "${XAI_API_KEY:-}"
+      # SwarmManager reads these to build per-agent service specs.
+      AGENT_SWARM_IMAGE: "agent-swarm:latest"
+      AGENT_SWARM_VOLUME: "agent-swarm_shared-data"
+    volumes:
+      - shared-data:/app/data
+      # Required to spawn sibling services from inside the cluster.
+      # See README — security note: demo only.
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - agent-swarm-net
+
+volumes:
+  shared-data:
+
+networks:
+  agent-swarm-net:
+    driver: overlay
+    attachable: true

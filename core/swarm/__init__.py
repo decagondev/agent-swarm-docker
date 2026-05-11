@@ -6,9 +6,12 @@ from core.swarm.manager import (
     SwarmServiceError,
     SwarmTimeoutError,
 )
+from core.swarm.result_watcher import ResultWatcher, ResultWatcherTimeoutError
 from core.swarm.service_spec import ServiceSpec
 
 __all__ = [
+    "ResultWatcher",
+    "ResultWatcherTimeoutError",
     "ServiceSpec",
     "SpawnedService",
     "SwarmManager",
