@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 import agents  # noqa: F401 — triggers @register_agent imports
 from core.io.shared_volume import DEFAULT_ROOT, SharedVolume
 from core.llm import get_llm_client
+from core.logging import SwarmEventLogger
 from core.registry import REGISTRY
 from core.supervisor import (
     AgentExecutor,
@@ -61,6 +62,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "'swarm' spawns one ephemeral Docker Swarm service per call."
         ),
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress spawn/cleanup/iter events on stderr.",
+    )
     return parser
 
 
@@ -69,12 +75,17 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     prompt = " ".join(args.prompt)
 
+    logger = SwarmEventLogger.silent() if args.quiet else SwarmEventLogger.default()
     volume = SharedVolume(args.data_root)
     volume.ensure_dirs()
     llm = get_llm_client(args.provider)
-    executor = _build_executor(args.executor, volume, llm)
+    executor = _build_executor(args.executor, volume, llm, logger)
     supervisor = Supervisor(
-        llm=llm, registry=REGISTRY, executor=executor, volume=volume
+        llm=llm,
+        registry=REGISTRY,
+        executor=executor,
+        volume=volume,
+        logger=logger,
     )
 
     final = supervisor.run(prompt, job_id=args.job)
@@ -82,7 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _build_executor(kind: str, volume: SharedVolume, llm) -> AgentExecutor:
+def _build_executor(
+    kind: str, volume: SharedVolume, llm, logger: SwarmEventLogger
+) -> AgentExecutor:
     if kind == "threadpool":
         return ThreadPoolAgentExecutor(REGISTRY, volume, llm=llm)
     if kind == "swarm":
@@ -90,9 +103,9 @@ def _build_executor(kind: str, volume: SharedVolume, llm) -> AgentExecutor:
 
         image = os.environ.get("AGENT_SWARM_IMAGE", "agent-swarm:latest")
         shared_volume = os.environ.get("AGENT_SWARM_VOLUME", "agent-swarm_shared-data")
-        swarm = SwarmManager(image=image, shared_volume=shared_volume)
+        swarm = SwarmManager(image=image, shared_volume=shared_volume, logger=logger)
         watcher = ResultWatcher(volume.results_dir)
-        return SwarmAgentExecutor(REGISTRY, volume, swarm, watcher)
+        return SwarmAgentExecutor(REGISTRY, volume, swarm, watcher, logger=logger)
     raise ValueError(f"Unknown executor: {kind!r}")
 
 

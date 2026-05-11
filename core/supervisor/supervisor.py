@@ -8,6 +8,7 @@ backed by Docker Swarm services; the Supervisor itself never imports `docker`.
 from __future__ import annotations
 
 import inspect
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
 from uuid import uuid4
@@ -15,6 +16,7 @@ from uuid import uuid4
 from agents.base import AgentResult, BaseAgent
 from core.io.shared_volume import SharedVolume
 from core.llm.base import LLMClient
+from core.logging import SwarmEventLogger
 from core.registry import AgentRegistry
 from core.supervisor.aggregator import (
     build_assistant_tool_call_message,
@@ -105,6 +107,7 @@ class SwarmAgentExecutor:
         max_workers: int = DEFAULT_MAX_WORKERS,
         agent_timeout_s: float = DEFAULT_SWARM_AGENT_TIMEOUT_S,
         summary_clip_chars: int = DEFAULT_SUMMARY_CLIP_CHARS,
+        logger: SwarmEventLogger | None = None,
     ) -> None:
         self._registry = registry  # Validation only — agent class must exist.
         self._volume = volume
@@ -113,6 +116,7 @@ class SwarmAgentExecutor:
         self._max_workers = max_workers
         self._agent_timeout_s = agent_timeout_s
         self._summary_clip = summary_clip_chars
+        self._logger = logger or SwarmEventLogger.silent()
 
     def execute(self, calls: list[tuple[str, str]]) -> list[AgentResult]:
         # Validate up-front so a bad LLM-generated name doesn't waste a spawn.
@@ -124,11 +128,15 @@ class SwarmAgentExecutor:
             return [f.result() for f in futures]
 
     def _run_one(self, agent_name: str, job_id: str) -> AgentResult:
+        start = time.monotonic()
         spawned = self._swarm.spawn_agent(agent_name, job_id)
+        self._logger.spawn(agent_name, job_id, spawned.service_id)
         try:
             self._watcher.wait_for(job_id, agent_name, timeout_s=self._agent_timeout_s)
+            self._logger.complete(agent_name, job_id, time.monotonic() - start)
         finally:
             self._swarm.cleanup(spawned)
+            self._logger.cleanup(agent_name, job_id, spawned.service_id)
 
         result_path = self._volume.result_path(job_id, agent_name)
         body = result_path.read_text(encoding="utf-8") if result_path.exists() else ""
@@ -150,12 +158,14 @@ class Supervisor:
         executor: AgentExecutor,
         volume: SharedVolume,
         max_iterations: int = MAX_ITERATIONS,
+        logger: SwarmEventLogger | None = None,
     ) -> None:
         self._llm = llm
         self._registry = registry
         self._executor = executor
         self._volume = volume
         self._max_iterations = max_iterations
+        self._logger = logger or SwarmEventLogger.silent()
 
     def run(self, user_prompt: str, *, job_id: str | None = None) -> str:
         if job_id is None:
@@ -167,15 +177,17 @@ class Supervisor:
             {"role": "user", "content": build_user_message(user_prompt, job_id)},
         ]
 
-        for _ in range(self._max_iterations):
+        for iteration in range(self._max_iterations):
             resp = self._llm.chat(
                 system=SUPERVISOR_SYSTEM_PROMPT,
                 messages=messages,
                 tools=tools,
             )
             if resp.is_final:
+                self._logger.llm_final(iteration, len(resp.text or ""))
                 return resp.text or ""
 
+            self._logger.llm_round(iteration, len(resp.tool_calls))
             messages.append(build_assistant_tool_call_message(resp))
             calls = [(tc.name, job_id) for tc in resp.tool_calls]
             results = self._executor.execute(calls)

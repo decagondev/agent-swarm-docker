@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 from uuid import uuid4
 
+from core.logging import SwarmEventLogger
 from core.swarm.service_spec import ServiceSpec
 
 
@@ -73,6 +74,7 @@ class SwarmManager:
         label_prefix: str = DEFAULT_LABEL_PREFIX,
         poll_interval_s: float = 0.5,
         reap_stale_on_startup: bool = True,
+        logger: SwarmEventLogger | None = None,
     ) -> None:
         self._client = client if client is not None else _resolve_default_client()
         self._image = image
@@ -80,6 +82,7 @@ class SwarmManager:
         self._data_root = data_root_in_container
         self._label_prefix = label_prefix
         self._poll_interval = poll_interval_s
+        self._logger = logger or SwarmEventLogger.silent()
         if reap_stale_on_startup:
             self.reap_stale()
 
@@ -179,6 +182,7 @@ class SwarmManager:
         stale = self.list_active({f"{self._label_prefix}.role": "ephemeral"})
         for s in stale:
             self.cleanup(s)
+        self._logger.reap(len(stale))
         return len(stale)
 
     def list_active(
