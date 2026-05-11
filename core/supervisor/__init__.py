@@ -5,6 +5,7 @@ from core.supervisor.supervisor import (
     AgentExecutor,
     Supervisor,
     SupervisorIterationLimitError,
+    SwarmAgentExecutor,
     ThreadPoolAgentExecutor,
 )
 
@@ -13,6 +14,7 @@ __all__ = [
     "AgentExecutor",
     "Supervisor",
     "SupervisorIterationLimitError",
+    "SwarmAgentExecutor",
     "ThreadPoolAgentExecutor",
     "build_user_message",
 ]

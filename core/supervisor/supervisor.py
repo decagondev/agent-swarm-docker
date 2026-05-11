@@ -21,9 +21,12 @@ from core.supervisor.aggregator import (
     build_tool_result_messages,
 )
 from core.supervisor.prompt import SUPERVISOR_SYSTEM_PROMPT, build_user_message
+from core.swarm import ResultWatcher, SwarmManager
 
 MAX_ITERATIONS = 5
 DEFAULT_MAX_WORKERS = 8
+DEFAULT_SWARM_AGENT_TIMEOUT_S = 120.0
+DEFAULT_SUMMARY_CLIP_CHARS = 800
 
 
 def _instantiate(cls: type[BaseAgent], llm: LLMClient | None) -> BaseAgent:
@@ -78,6 +81,64 @@ class ThreadPoolAgentExecutor:
 
 class SupervisorIterationLimitError(RuntimeError):
     """Raised when the LLM loop fails to converge on a final answer."""
+
+
+class SwarmAgentExecutor:
+    """Run agents as ephemeral Docker Swarm services.
+
+    For each tool call: `SwarmManager.spawn_agent` creates a service, the
+    `ResultWatcher` blocks until `<job>__<agent>.result` lands on the shared
+    volume, then `SwarmManager.cleanup` removes the service. Spawning and
+    waiting happen concurrently via a thread pool, so calls in the same LLM
+    turn run in parallel.
+
+    `AgentResult.summary` is the result-file contents (clipped). Swarm-spawned
+    agents don't return Python objects, so the file *is* the wire format.
+    """
+
+    def __init__(
+        self,
+        registry: AgentRegistry,
+        volume: SharedVolume,
+        swarm: SwarmManager,
+        watcher: ResultWatcher,
+        max_workers: int = DEFAULT_MAX_WORKERS,
+        agent_timeout_s: float = DEFAULT_SWARM_AGENT_TIMEOUT_S,
+        summary_clip_chars: int = DEFAULT_SUMMARY_CLIP_CHARS,
+    ) -> None:
+        self._registry = registry  # Validation only — agent class must exist.
+        self._volume = volume
+        self._swarm = swarm
+        self._watcher = watcher
+        self._max_workers = max_workers
+        self._agent_timeout_s = agent_timeout_s
+        self._summary_clip = summary_clip_chars
+
+    def execute(self, calls: list[tuple[str, str]]) -> list[AgentResult]:
+        # Validate up-front so a bad LLM-generated name doesn't waste a spawn.
+        for name, _ in calls:
+            self._registry.get(name)
+
+        with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
+            futures = [pool.submit(self._run_one, name, job_id) for name, job_id in calls]
+            return [f.result() for f in futures]
+
+    def _run_one(self, agent_name: str, job_id: str) -> AgentResult:
+        spawned = self._swarm.spawn_agent(agent_name, job_id)
+        try:
+            self._watcher.wait_for(job_id, agent_name, timeout_s=self._agent_timeout_s)
+        finally:
+            self._swarm.cleanup(spawned)
+
+        result_path = self._volume.result_path(job_id, agent_name)
+        body = result_path.read_text(encoding="utf-8") if result_path.exists() else ""
+        clipped = body if len(body) <= self._summary_clip else body[: self._summary_clip] + "…"
+        return AgentResult(
+            agent_name=agent_name,
+            job_id=job_id,
+            output_path=result_path,
+            summary=clipped,
+        )
 
 
 class Supervisor:
@@ -137,5 +198,6 @@ __all__ = [
     "AgentExecutor",
     "Supervisor",
     "SupervisorIterationLimitError",
+    "SwarmAgentExecutor",
     "ThreadPoolAgentExecutor",
 ]
