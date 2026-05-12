@@ -6,6 +6,15 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# docker stack deploy doesn't auto-load .env the way docker compose does.
+# Source it so ${LLM_PROVIDER}, ${GROQ_API_KEY}, etc. interpolate correctly.
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
 IMAGE="${AGENT_SWARM_IMAGE:-agent-swarm:latest}"
 STACK="${AGENT_SWARM_STACK:-agent-swarm}"
 

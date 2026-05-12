@@ -13,6 +13,7 @@ Label convention (used for filtering, cleanup, observability):
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -20,6 +21,17 @@ from uuid import uuid4
 
 from core.logging import SwarmEventLogger
 from core.swarm.service_spec import ServiceSpec
+
+# Env vars that need to flow from the supervisor container down into every
+# spawned agent service so LLM-aware agents can talk to the provider.
+# Anything that isn't set in the supervisor's environment is simply skipped.
+PROPAGATED_ENV_VARS = (
+    "LLM_PROVIDER",
+    "LLM_MODEL",
+    "OPENAI_API_KEY",
+    "GROQ_API_KEY",
+    "XAI_API_KEY",
+)
 
 
 class SwarmServiceError(RuntimeError):
@@ -99,7 +111,15 @@ class SwarmManager:
             f"{self._label_prefix}.agent": agent_name,
             f"{self._label_prefix}.role": "ephemeral",
         }
-        env = {"DATA_ROOT": self._data_root, **(extra_env or {})}
+        env: dict[str, str] = {"DATA_ROOT": self._data_root}
+        # Forward LLM credentials from our environment so the spawned agent
+        # service can construct its own LLMClient. Empty/unset vars are skipped.
+        for key in PROPAGATED_ENV_VARS:
+            value = os.environ.get(key, "")
+            if value:
+                env[key] = value
+        if extra_env:
+            env.update(extra_env)
         return ServiceSpec(
             image=self._image,
             command=[
