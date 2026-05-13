@@ -16,7 +16,8 @@
       "Bash(docker image *)",
       "Bash(time bash ./scripts/demo-run.sh \"Take this product blurb and prepare a launch summary: 'Atlas is a self-hosted feature flag service that ships SDKs for six languages and exposes an audit log of every flip.'\")",
       "Bash(git config *)",
-      "Bash(time bash ./scripts/demo-run.sh \"Reverse this string, count its consonants, and tell me what features it suggests: 'Production-grade Docker Swarm orchestration with zero downtime.'\")"
+      "Bash(time bash ./scripts/demo-run.sh \"Reverse this string, count its consonants, and tell me what features it suggests: 'Production-grade Docker Swarm orchestration with zero downtime.'\")",
+      "Bash(Get-ChildItem -Path \"D:\\\\source\\\\repos\\\\agent-swarm-docker\" -Recurse -File -Name)"
     ]
   }
 }

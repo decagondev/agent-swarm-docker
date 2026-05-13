@@ -82,6 +82,14 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to a JSON file of recorded LLMResponses. Used with --dry-run.",
     )
+    parser.add_argument(
+        "--pentest",
+        action="store_true",
+        help=(
+            "Expose pentest-tagged agents (nmap_scan, pentest_reporter) to the "
+            "LLM. Default: hidden. Authorized scan target only."
+        ),
+    )
     return parser
 
 
@@ -95,12 +103,16 @@ def main(argv: list[str] | None = None) -> int:
     volume = SharedVolume(args.data_root)
     volume.ensure_dirs()
     executor = _build_executor(args.executor, volume, llm, logger)
+    enabled_tags = (
+        frozenset({"general", "pentest"}) if args.pentest else frozenset({"general"})
+    )
     supervisor = Supervisor(
         llm=llm,
         registry=REGISTRY,
         executor=executor,
         volume=volume,
         logger=logger,
+        enabled_tags=enabled_tags,
     )
 
     final = supervisor.run(prompt, job_id=args.job)

@@ -40,12 +40,36 @@ class AgentRegistry:
     def names(self) -> list[str]:
         return sorted(self._agents)
 
-    def all_schemas(self) -> list[ToolSchema]:
-        return [self._agents[name].tool_schema() for name in self.names()]
+    def all_schemas(
+        self, *, include_tags: frozenset[str] | None = None
+    ) -> list[ToolSchema]:
+        """Schemas for registered agents.
 
-    def openai_tools(self) -> list[dict]:
-        """All registered agents serialized for the LLM tools= parameter."""
-        return [s.to_openai_dict() for s in self.all_schemas()]
+        `include_tags=None` (default) preserves legacy behavior — every
+        registered agent is returned. A non-empty frozenset filters to agents
+        whose `tags` overlap. An empty frozenset is rejected to avoid the
+        silent-no-op footgun (zero tools surfaced to the LLM → silent
+        no-op final answer).
+        """
+        if include_tags is not None and not include_tags:
+            raise ValueError("include_tags must be None or a non-empty frozenset")
+        names = self.names()
+        if include_tags is None:
+            return [self._agents[name].tool_schema() for name in names]
+        return [
+            self._agents[name].tool_schema()
+            for name in names
+            if self._agents[name].tags & include_tags
+        ]
+
+    def openai_tools(
+        self, *, include_tags: frozenset[str] | None = None
+    ) -> list[dict]:
+        """Registered agents serialized for the LLM `tools=` parameter.
+
+        See `all_schemas` for `include_tags` semantics.
+        """
+        return [s.to_openai_dict() for s in self.all_schemas(include_tags=include_tags)]
 
     def __contains__(self, name: str) -> bool:
         return name in self._agents

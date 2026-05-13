@@ -31,15 +31,25 @@ DEFAULT_SWARM_AGENT_TIMEOUT_S = 120.0
 DEFAULT_SUMMARY_CLIP_CHARS = 800
 
 
-def _instantiate(cls: type[BaseAgent], llm: LLMClient | None) -> BaseAgent:
-    """Construct an agent, passing `llm` only if its __init__ accepts it.
+def _instantiate(
+    cls: type[BaseAgent],
+    llm: LLMClient | None,
+    volume: SharedVolume | None = None,
+) -> BaseAgent:
+    """Construct an agent, injecting `llm` / `volume` only if accepted.
 
-    Lets LLM-aware agents receive a shared client without forcing simple
-    agents (e.g. CapitalizeAgent) to declare an `llm` parameter they ignore.
+    Mirrors the Dependency-Inversion pattern: simple agents declare neither
+    parameter and stay constructible with zero args; LLM-aware agents declare
+    `llm=`; cross-agent-reading agents declare `volume=`. Each kwarg is added
+    independently based on the actual __init__ signature.
     """
-    if llm is None or "llm" not in inspect.signature(cls.__init__).parameters:
-        return cls()
-    return cls(llm=llm)
+    params = inspect.signature(cls.__init__).parameters
+    kwargs: dict[str, Any] = {}
+    if llm is not None and "llm" in params:
+        kwargs["llm"] = llm
+    if volume is not None and "volume" in params:
+        kwargs["volume"] = volume
+    return cls(**kwargs)
 
 
 class AgentExecutor(Protocol):
@@ -74,7 +84,7 @@ class ThreadPoolAgentExecutor:
 
     def _run_one(self, agent_name: str, job_id: str) -> AgentResult:
         cls = self._registry.get(agent_name)
-        return _instantiate(cls, self._llm).run(
+        return _instantiate(cls, self._llm, self._volume).run(
             self._volume.input_path(job_id),
             self._volume.results_dir,
             job_id,
@@ -149,6 +159,9 @@ class SwarmAgentExecutor:
         )
 
 
+DEFAULT_ENABLED_TAGS = frozenset({"general"})
+
+
 class Supervisor:
     def __init__(
         self,
@@ -159,6 +172,7 @@ class Supervisor:
         volume: SharedVolume,
         max_iterations: int = MAX_ITERATIONS,
         logger: SwarmEventLogger | None = None,
+        enabled_tags: frozenset[str] = DEFAULT_ENABLED_TAGS,
     ) -> None:
         self._llm = llm
         self._registry = registry
@@ -166,13 +180,14 @@ class Supervisor:
         self._volume = volume
         self._max_iterations = max_iterations
         self._logger = logger or SwarmEventLogger.silent()
+        self._enabled_tags = enabled_tags
 
     def run(self, user_prompt: str, *, job_id: str | None = None) -> str:
         if job_id is None:
             job_id = f"job-{uuid4().hex[:8]}"
         self._volume.write_input(job_id, user_prompt)
 
-        tools = self._registry.openai_tools()
+        tools = self._registry.openai_tools(include_tags=self._enabled_tags)
         messages: list[dict[str, Any]] = [
             {"role": "user", "content": build_user_message(user_prompt, job_id)},
         ]

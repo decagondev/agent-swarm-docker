@@ -46,6 +46,11 @@ class BaseAgent(ABC):
     name: ClassVar[str]
     description: ClassVar[str]
     parameters: ClassVar[dict[str, Any]]
+    # Categories the agent belongs to. The registry's tag filter (used by the
+    # Supervisor when assembling the LLM-visible tool list) keys off this. New
+    # agents inherit the "general" default and become visible to the LLM by
+    # default; opt-in agents (e.g. pentest) override with a more specific set.
+    tags: ClassVar[frozenset[str]] = frozenset({"general"})
 
     @classmethod
     def tool_schema(cls) -> ToolSchema:

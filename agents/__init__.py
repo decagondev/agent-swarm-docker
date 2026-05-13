@@ -8,6 +8,7 @@ from agents import (  # noqa: F401 — import-for-side-effect (@register_agent)
     capitalize,
     count_consonants,
     feature_extractor,
+    pentest,
     reverse,
     slogan_generator,
     translator,

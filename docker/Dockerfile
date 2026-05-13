@@ -6,6 +6,14 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Layer 1b: system tools for opt-in pentest agents (feature/pentest only).
+# Placed AFTER pip install so the slow pip layer stays cached when this
+# changes. Adds ~25 MB. The nmap binary is only invoked when the supervisor
+# is run with --pentest; the agents are otherwise invisible.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends nmap \
+ && rm -rf /var/lib/apt/lists/*
+
 # Layer 2: source. Excludes tests/, shared-data/, scripts/ via .dockerignore.
 COPY . /app
 

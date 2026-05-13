@@ -103,13 +103,37 @@ def test_system_prompt_sent_each_turn(volume, executor, fake_llm):
 
 
 def test_tools_advertised_match_registry(volume, executor, fake_llm):
+    """By default the Supervisor advertises the `general` slice of the
+    registry. The opt-in pentest agents are registered but filtered out."""
     fake_llm.queue_response(LLMResponse(text="done"))
     Supervisor(llm=fake_llm, registry=REGISTRY, executor=executor, volume=volume).run(
         "x", job_id="j"
     )
 
-    tool_names = [t["function"]["name"] for t in fake_llm.calls[0]["tools"]]
-    assert set(tool_names) == set(REGISTRY.names())
+    tool_names = {t["function"]["name"] for t in fake_llm.calls[0]["tools"]}
+    expected = {
+        t["function"]["name"]
+        for t in REGISTRY.openai_tools(include_tags=frozenset({"general"}))
+    }
+    assert tool_names == expected
+    assert "nmap_scan" not in tool_names
+    assert "pentest_reporter" not in tool_names
+
+
+def test_pentest_tag_unhides_pentest_agents(volume, executor, fake_llm):
+    """With pentest in enabled_tags, both pentest agents become visible."""
+    fake_llm.queue_response(LLMResponse(text="done"))
+    Supervisor(
+        llm=fake_llm,
+        registry=REGISTRY,
+        executor=executor,
+        volume=volume,
+        enabled_tags=frozenset({"general", "pentest"}),
+    ).run("x", job_id="j")
+
+    tool_names = {t["function"]["name"] for t in fake_llm.calls[0]["tools"]}
+    assert "nmap_scan" in tool_names
+    assert "pentest_reporter" in tool_names
 
 
 def test_iteration_limit_raises(volume, executor, fake_llm):

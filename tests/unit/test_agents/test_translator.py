@@ -34,8 +34,10 @@ def test_registered_with_singleton():
     assert REGISTRY.get("translator") is TranslatorAgent
 
 
-def test_all_seven_agents_registered():
-    expected = {
+def test_all_seven_general_agents_registered():
+    """The seven 'general'-tagged agents must still be present and visible
+    when the default (general-only) tag filter is applied."""
+    expected_general = {
         "capitalize",
         "count_consonants",
         "feature_extractor",
@@ -44,4 +46,8 @@ def test_all_seven_agents_registered():
         "translator",
         "vowel_random",
     }
-    assert set(REGISTRY.names()) == expected
+    general_names = {
+        t["function"]["name"]
+        for t in REGISTRY.openai_tools(include_tags=frozenset({"general"}))
+    }
+    assert general_names == expected_general
