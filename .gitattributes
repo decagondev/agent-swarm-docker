@@ -1,0 +1,23 @@
+# Shell scripts and Makefiles must stay LF on every platform.
+# Otherwise Linux/WSL hits `env: 'bash\r': No such file or directory`
+# and `make` breaks on \r-terminated recipes.
+*.sh        text eol=lf
+Makefile    text eol=lf
+Dockerfile  text eol=lf
+
+# YAML configs consumed by Docker / CI are also safer as LF.
+*.yml       text eol=lf
+*.yaml      text eol=lf
+
+# Python — let git normalize to LF (industry standard).
+*.py        text eol=lf
+
+# Fixtures and configs the supervisor reads at runtime.
+*.json      text
+*.toml      text
+*.md        text
+
+# Treat known binaries as binary (defensive).
+*.png       binary
+*.jpg       binary
+*.gif       binary

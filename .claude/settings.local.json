@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker version *)",
+      "Bash(docker info *)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Test-Path *)",
+      "Bash(bash ./scripts/demo-up.sh)",
+      "Bash(docker stack *)",
+      "Bash(docker service *)",
+      "Bash(bash ./scripts/demo-run.sh \"Analyze this product description and produce a short marketing brief: 'The quick brown fox jumps over the lazy dog while coding with Docker Swarm.'\")",
+      "Bash(docker volume *)",
+      "Bash(docker node *)",
+      "Bash(bash ./scripts/demo-down.sh)",
+      "Bash(bash ./scripts/demo-run.sh \"Count consonants in this sentence.\")",
+      "Bash(docker image *)",
+      "Bash(time bash ./scripts/demo-run.sh \"Take this product blurb and prepare a launch summary: 'Atlas is a self-hosted feature flag service that ships SDKs for six languages and exposes an audit log of every flip.'\")",
+      "Bash(git config *)"
+    ]
+  }
+}

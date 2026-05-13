@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Purpose
 
-This repo is a **live-demo asset** for an 8-minute conference talk on Docker Swarm as a runtime for parallel AI agent swarms (see `lesson-plan-prd.md` for the original PRD and `/home/tom/.claude/plans/ok-well-lets-make-vivid-goblet.md` for the executable plan that drove the refactor). The end state is a SOLID-modular Python package with a provider-agnostic LLM supervisor that uses registered agents as tools and dynamically spawns Docker Swarm services. The README walks a stranger through the talk's clone-and-run path.
+This repo is a **live-demo asset** for an 8-minute conference talk on Docker Swarm as a runtime for parallel AI agent swarms. The end state is a SOLID-modular Python package with a provider-agnostic LLM supervisor that uses registered agents as tools and dynamically spawns Docker Swarm services. See `lesson-plan-prd.md` for the original PRD, `docs/TALK.md` for the 8-minute talk script, `docs/slides.html` for the slides, and `README.md` for the clone-and-run path.
 
 ## Commands
 
@@ -20,16 +20,26 @@ docker compose -f docker/compose.dev.yml build
 docker compose -f docker/compose.dev.yml run --rm supervisor \
     python supervisor.py --executor threadpool "..."
 
-# Local Python.
-pip install -e ".[dev]"                    # editable + dev tooling
-pytest tests/unit                          # unit tests, no Docker
-DOCKER_SWARM_TESTS=1 pytest tests/integration   # opt-in e2e against real Swarm
-ruff check .
+# Local Python — canonical entrypoints via Makefile.
+make install                               # pip install -e ".[dev]" + requirements.txt
+make test                                  # pytest tests/unit -v (no Docker)
+make test-demo                             # DOCKER_SWARM_TESTS=1 pytest tests/integration -v
+make test-all                              # both
+make lint                                  # ruff check .
+make format                                # ruff check --fix + ruff format
+make image                                 # docker build -f docker/Dockerfile -t agent-swarm:latest .
+
+# Single test (file / node id).
+pytest tests/unit/test_registry.py -v
+pytest tests/unit/test_registry.py::test_registers_decorator -v
+pytest -k swarm_executor                   # by keyword across the suite
 
 # Offline rehearsal (no LLM network).
 python supervisor.py --dry-run --fixture tests/fixtures/talk_prompt_response.json \
     --job demo --data-root /tmp/demo "..."
 ```
+
+CI runs `make lint test` on PRs via `.github/workflows/ci.yml`. The Makefile + `scripts/*.sh` assume POSIX tools (`find`, `rm`); on Windows, run them through WSL or inside the Docker dev container.
 
 ## Architecture
 
@@ -46,6 +56,8 @@ python supervisor.py --dry-run --fixture tests/fixtures/talk_prompt_response.jso
 
 **LLM injection into agents**: `ThreadPoolAgentExecutor` uses `inspect.signature` to detect whether an agent's `__init__` accepts `llm=` — simple agents (capitalize/reverse/etc.) ignore it; LLM-aware agents (feature_extractor/slogan_generator/translator) receive a shared client. Swarm-spawned agents construct their own client lazily via `get_llm_client()` from env.
 
+**Per-agent container entrypoint**: `agents/runner.py` is what each Swarm-spawned service actually executes. It receives `--agent <name>` + `--job <id>`, looks the agent class up in the registry, runs it against the shared-volume input file, and writes the `.result` artifact that `ResultWatcher` is polling for. Adding a new agent does not require touching `runner.py`.
+
 **Logging**: `core/logging.py` `SwarmEventLogger` is rich-based. Final-answer text goes to stdout; spawn/cleanup/iter events go to stderr — pipeline-safe (`supervisor.py ... | tee result.txt` works).
 
 ## Working in this repo
@@ -57,13 +69,3 @@ python supervisor.py --dry-run --fixture tests/fixtures/talk_prompt_response.jso
 - **Talk fixture limit**: `tests/fixtures/talk_prompt_response.json` deliberately omits LLM-aware agents (feature_extractor, slogan_generator, translator) because they'd recursively consume responses from the same `ScriptedLLMClient`. If you extend the fixture with those agents, add per-agent responses for each LLM call.
 - **`shared-data/` is host-side, root-owned**: Docker writes there as root. Cleanup uses an `alpine` container: `docker run --rm -v "$(pwd)/shared-data:/data" alpine sh -c "rm -rf /data/*"`.
 - **Docker socket security**: `docker/docker-stack.yml` mounts `/var/run/docker.sock` so the supervisor can spawn sibling services. This is a demo-only pattern; README calls it out.
-
-## Demo-readiness gates
-
-| After commit | What works |
-|---|---|
-| Slice 8  | Original 4-task demo via the new architecture (no LLM, no Swarm) |
-| Slice 14 | LLM supervisor + threadpool — fallback if Swarm work slips |
-| Slice 18 | Full talk demo with real Swarm |
-| Slice 22 | + offline rehearsal via `--dry-run --fixture` |
-| Slice 25 | Ship-ready: docs + CI |
